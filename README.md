@@ -3,6 +3,8 @@
 Statum is a simple yet handy web analytics tool developed by Extractum.io that parses web server log files, enriches them with web-based data and inserts pertinent details into an SQLite database. 
 This enables quick analysis and reporting of web server activity.
 
+![alt text](logo/statum.webp "Statum")
+
 ## Features:
 - Parses Nginx/Apache server logs.
 - Filters and extracts relevant details like IP, method, URL, user-agent, etc.
@@ -41,6 +43,7 @@ python statum.py --<option>
 ## Command-Line Options:
 - `--today`: Only parse and import today's log files.
 - `--full`: Parse and import all available log files. If the tables already exist in the database, they will be dropped and recreated.
+- `--missing`: Incremental update of the database with the missing log files. This option is useful if you want to update the database with the latest log files without reprocessing the entire log files.   
 
 ## Output:
 The script will process the log files and insert data into an SQLite3 database named `statum.db`. Two tables, namely `hits` and `ua`, will store the parsed data.
@@ -62,7 +65,7 @@ To automate the process, you can set up a cron job to run the script periodicall
 - Ensure the SQLite3 database (`statum.db`) is backed up if you run the script with the `--full` option since it will recreate tables and any existing data will be lost.
 
 ## Author:
-- Greg Z, 2023, info@extractum.io
+- Gregory Z
 - License: Apache 2.0
 
 ## Feedback & Contributions:

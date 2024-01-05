@@ -1,4 +1,4 @@
-# by Greg Z, 2023, info@extractum.io
+# by Gregory Z, 2023-2024, info@extractum.io
 import os
 import re
 import gzip
@@ -14,6 +14,8 @@ from is_bot import Bots
 # Change the following variables to suit your needs
 # ======================================================================================================================
 
+PATH_TO_DATABASE = 'db/statum.db'
+
 # the list of files to be processed from the log and stored in the database
 EXTENSION_INCLUDES = r'\.(txt|html?|ico|php|phtml|php5|php7|py|pl|sh|cgi|shtml)$'
 LOG_PATTERN = re.compile(
@@ -25,6 +27,7 @@ LOG_ROOT = '/var/log/nginx'
 
 # The script will scan for access.log, access.log.1, access.log.2.gz, access.log.3.gz, etc.
 LOG_FILENAME = 'access.log' # prefix of the log file name
+
 # ======================================================================================================================
 
 # to determine if the user agent is a mobile browser
@@ -45,200 +48,229 @@ def detect_mobile_browser(user_agent):
         return True
     return False
 
-print("Statum - Simple Yet Handy Web Analytics by Extractum.io")
+def main():
+    print("Statum - Simple Yet Handy Web Analytics by Extractum.io")
 
-# Argument parsing
-parser = argparse.ArgumentParser(description="Parse WebServer Log Files.")
-parser.add_argument('--today', action='store_true', help='Parse only today\'s log files.')
-parser.add_argument('--full', action='store_true', help='Parse all log files.')
+    # Argument parsing
+    parser = argparse.ArgumentParser(description="Parse WebServer Log Files.")
+    parser.add_argument('--today', action='store_true', help='Parse only today\'s log files.')
+    parser.add_argument('--full', action='store_true', help='Parse all log files and insert the records into the empty database.')
+    parser.add_argument('--missing', action='store_true', help='Parse all log files and insert missing records based on the last inserted timestamp in the database.')
 
-if len(sys.argv) == 1:  # No arguments provided
-    parser.print_help(sys.stderr)
-    sys.exit(1)
+    if len(sys.argv) == 1:  # No arguments provided
+        parser.print_help(sys.stderr)
+        sys.exit(1)
 
-args = parser.parse_args()
+    args = parser.parse_args()
 
-# Database connection
-conn = sqlite3.connect('db/statum.db')
-cur = conn.cursor()
+    if args.full:
+        # delete database for a fresh start
+        if os.path.exists(PATH_TO_DATABASE):
+            os.remove(PATH_TO_DATABASE)
 
-today = datetime.now().strftime('%Y-%m-%d')
-bots = Bots()
+    # Database connection
+    conn = sqlite3.connect(PATH_TO_DATABASE)
+    cur = conn.cursor()
 
-# Processing based on arguments
-if args.full:
-    cur.execute('DROP TABLE IF EXISTS hits')
-    cur.execute('DROP TABLE IF EXISTS ua')
+    today = datetime.now().strftime('%Y-%m-%d')
+    bots = Bots()
 
-cur.execute('''
-CREATE TABLE IF NOT EXISTS hits (
-    dt DATE,
-    statum INTEGER,
-    ip TEXT,
-    ts INTEGER,
-    method TEXT,
-    url TEXT,
-    params TEXT,
-    ref TEXT,
-    hash TEXT,
-    size INTEGER,
-    httpstatus INTEGER,
-    user_agent_id TEXT,
-    uid TEXT,
-    resolution TEXT,
-    language TEXT,
-    os TEXT,
-    FOREIGN KEY (user_agent_id) REFERENCES ua (hash)
-)
-''')
+    # Processing based on arguments
+    if args.full:
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS ua (
+            hash TEXT PRIMARY KEY,
+            ua TEXT,
+            mobile INTEGER,
+            bot INTEGER
+        );
+        ''')
 
-cur.execute('''
-CREATE TABLE IF NOT EXISTS ua (
-    hash TEXT PRIMARY KEY,
-    ua TEXT,
-    mobile INTEGER,
-    bot INTEGER
-)
-''')
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS hits (
+            dt DATE,
+            statum INTEGER,
+            ip TEXT,
+            ts INTEGER,
+            method TEXT,
+            url TEXT,
+            params TEXT,
+            ref TEXT,
+            hash TEXT,
+            size INTEGER,
+            httpstatus INTEGER,
+            user_agent_id TEXT,
+            uid TEXT,
+            resolution TEXT,
+            language TEXT,
+            os TEXT,
+            FOREIGN KEY (user_agent_id) REFERENCES ua (hash),
+            UNIQUE(ts, ip, url)
+        );
+        ''')
 
-if args.today:
-    cur.execute(f'DELETE FROM hits WHERE dt = ?', (today,))
+        cur.execute('''
+            CREATE INDEX idx_hits_unique ON hits(ts, ip, url);
+        ''')
 
-# User agent dictionary
-ua_dict = {}
+    # delete records for today as they will be re-inserted
+    if args.today:
+        cur.execute(f'DELETE FROM hits WHERE dt = ?', (today,))
 
-# Record Counter
-record_counter = 0
+    # query the last inserted record in the db
+    cur.execute('SELECT MAX(ts) FROM hits')
+    last_ts = cur.fetchone()[0]
+    if last_ts is None:
+        last_ts = 0
 
-ua_inserts = []  # To keep track of user-agent inserts
-hits_inserts = []  # To keep track of hit inserts
+    # User agent dictionary
+    ua_dict = {}
 
-# Processing files
-for root, dirs, files in os.walk(LOG_ROOT):
-    for file in files:
-        if args.today and file == LOG_FILENAME:  # When --recent, look for 'access_log' only
-            filepath = os.path.join(root, file)
-            print(f"Processing file: {filepath}")  # Show current processing file
-            # proceed with further processing
-        elif not args.today and file.startswith(LOG_FILENAME):  # Otherwise, proceed as before
-            filepath = os.path.join(root, file)
-            print(f"Processing file: {filepath}")  # Show current processing file
-            # proceed with further processing
-        else:
-            continue
-            
-        # Open the file, decompressing it if necessary
-        opener = gzip.open if filepath.endswith('.gz') else open
-        with opener(filepath, 'rt') as log_file:
-            for line in log_file:
-                match = LOG_PATTERN.match(line)
-                if match:
-                    data = match.groupdict()
+    # Record Counter
+    record_counter = 0
 
-                    # Assuming match.group('request') contains the entire request string
-                    request_parts = urlparse(data['url'])
-                    data['url'] = request_parts.path  # extracting the path
-                    data['ref'] = ''
-                    data['uid'] = data['ip']
+    ua_inserts = []  # To keep track of user-agent inserts
+    hits_inserts = []  # To keep track of hit inserts
 
-                    # default values for the case when the records are being extracted from local logs only
-                    data['s'] = ''
-                    data['l'] = ''
-                    data['os'] = ''
-                    data['statum'] = 0
+    skipped_counter = 0
 
-                    # special case for statum record (HEAD /statum.txt)
-                    if data['method'] == 'HEAD' and '/statum.txt' in data['url']:
-                        data['method'] = 'GET'
-                        parsed = parse_qs(request_parts.query)
-                        data['statum'] = 1
+    # Processing files
+    for root, dirs, files in os.walk(LOG_ROOT):
+        for file in files:
+            if args.today and file == LOG_FILENAME:  # When --recent, look for 'access_log' only
+                filepath = os.path.join(root, file)
+                print(f"Processing file: {filepath}")  # Show current processing file
+                # proceed with further processing
+            elif not args.today and file.startswith(LOG_FILENAME):  # Otherwise, proceed as before
+                filepath = os.path.join(root, file)
+                print(f"Processing file: {filepath}")  # Show current processing file
+                # proceed with further processing
+            else:
+                continue
 
-                        # Decoding the URI and referrer
-                        url = unquote(parsed['uri'][0]) if 'uri' in parsed else None
-                        data['ref'] = unquote(parsed['r'][0]) if 'r' in parsed else None
+            # Open the file, decompressing it if necessary
+            opener = gzip.open if filepath.endswith('.gz') else open
+            with opener(filepath, 'rt') as log_file:
+                for line in log_file:
+                    match = LOG_PATTERN.match(line)
+                    if match:
+                        data = match.groupdict()
 
-                        if 's' in parsed:
-                            data['s'] = parsed['s'][0]
+                        # Assuming match.group('request') contains the entire request string
+                        request_parts = urlparse(data['url'])
+                        data['url'] = request_parts.path  # extracting the path
+                        data['ref'] = ''
+                        data['uid'] = data['ip']
 
-                        if 'l' in parsed:
-                            data['l'] = parsed['l'][0]
+                        # default values for the case when the records are being extracted from local logs only
+                        data['s'] = ''
+                        data['l'] = ''
+                        data['os'] = ''
+                        data['statum'] = 0
 
-                        if 'os' in parsed:
-                            data['os'] = parsed['os'][0]
+                        # special case for statum record (HEAD /statum.txt)
+                        if data['method'] == 'HEAD' and '/statum.txt' in data['url']:
+                            data['method'] = 'GET'
+                            parsed = parse_qs(request_parts.query)
+                            data['statum'] = 1
 
-                        if url:
-                            request_parts = urlparse(url)
-                            data['url'] = request_parts.path
+                            # Decoding the URI and referrer
+                            url = unquote(parsed['uri'][0]) if 'uri' in parsed else None
+                            data['ref'] = unquote(parsed['r'][0]) if 'r' in parsed else None
 
-                    if not re.search(EXTENSION_INCLUDES, data['url']):
-                        if re.search(r'\.\w{1,5}$', data['url']):
+                            if 's' in parsed:
+                                data['s'] = parsed['s'][0]
+
+                            if 'l' in parsed:
+                                data['l'] = parsed['l'][0]
+
+                            if 'os' in parsed:
+                                data['os'] = parsed['os'][0]
+
+                            if url:
+                                request_parts = urlparse(url)
+                                data['url'] = request_parts.path
+
+                        if not re.search(EXTENSION_INCLUDES, data['url']):
+                            if re.search(r'\.\w{1,5}$', data['url']):
+                                continue
+
+                        # Parameters
+                        data['params'] = ''
+                        if request_parts.query:
+                            data['params'] = '?' + request_parts.query
+
+                        data['hash'] = ''
+                        # extract the part after # and before ?
+                        if request_parts.fragment:
+                            data['hash'] = '#' + request_parts.fragment
+
+                        date_str = data['date'].split()[0]
+                        dt = datetime.strptime(date_str, '%d/%b/%Y:%H:%M:%S')
+
+                        data['dt'] = dt.strftime('%Y-%m-%d')
+                        data['ts'] = int(dt.timestamp())
+
+                        # skip records that have already been inserted (regardless of the selected mode: today/all)
+                        if data['ts'] <= last_ts:
+                            skipped_counter += 1
                             continue
 
-                    # Parameters
-                    data['params'] = ''
-                    if request_parts.query:
-                        data['params'] = '?' + request_parts.query
+                        ua = data['user_agent']
+                        ua_hash = hashlib.sha256(ua.encode()).hexdigest()[:12]
+                        mobile = 1 if detect_mobile_browser(ua) else 0
+                        bot = 1 if bots.is_bot(ua) else 0
 
-                    data['hash'] = ''
-                    # extract the part after # and before ?
-                    if request_parts.fragment:
-                        data['hash'] = '#' + request_parts.fragment
+                        if ua_hash not in ua_dict:
+                            ua_inserts.append((ua_hash, ua, mobile, bot))
+                            ua_dict[ua_hash] = None
 
-                    date_str = data['date'].split()[0]
-                    dt = datetime.strptime(date_str, '%d/%b/%Y:%H:%M:%S')
+                        data['user_agent_id'] = ua_hash
 
-                    data['dt'] = dt.strftime('%Y-%m-%d')
-                    data['ts'] = int(dt.timestamp())
+                        hits_inserts.append((data['ip'], data['statum'], data['dt'], data['ts'], data['method'], data['url'],
+                                             data['params'], data['ref'], data['hash'], data['size'], data['status'], data['user_agent_id'],
+                                             data['uid'], data['s'], data['l'], data['os']))
 
-                    ua = data['user_agent']
-                    ua_hash = hashlib.sha256(ua.encode()).hexdigest()[:12]
-                    mobile = 1 if detect_mobile_browser(ua) else 0
-                    bot = 1 if bots.is_bot(ua) else 0
+                        # Consider inserting data in chunks to avoid memory issues
+                        if len(hits_inserts) >= 1000:
+                            cur.executemany('INSERT OR IGNORE INTO ua (hash, ua, mobile, bot) VALUES (?, ?, ?, ?)',
+                                            ua_inserts)
+                            cur.executemany('INSERT OR IGNORE INTO hits '
+                                            '(ip, statum, dt, ts, method, url, params, ref, hash, size, httpstatus, '
+                                            'user_agent_id, uid, resolution, language, os) VALUES '
+                                            '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', hits_inserts)
 
-                    if ua_hash not in ua_dict:
-                        ua_inserts.append((ua_hash, ua, mobile, bot))
-                        ua_dict[ua_hash] = None
+                            record_counter += len(hits_inserts)  # Increase record counter
 
-                    data['user_agent_id'] = ua_hash
+                            ua_inserts.clear()
+                            hits_inserts.clear()
+                            conn.commit()
 
-                    hits_inserts.append((data['ip'], data['statum'], data['dt'], data['ts'], data['method'], data['url'],
-                                        data['params'], data['ref'], data['hash'], data['size'], data['status'], data['user_agent_id'],
-                                        data['uid'], data['s'], data['l'], data['os']))
+            if args.today:
+                print(f"Records imported for today ({today}): {record_counter}")
+            else:
+                print(f"Records imported so far: {record_counter}")
 
-                    # Consider inserting data in chunks to avoid memory issues
-                    if len(hits_inserts) >= 1000:
-                        cur.executemany('INSERT OR IGNORE INTO ua (hash, ua, mobile, bot) VALUES (?, ?, ?, ?)', ua_inserts)
-                        cur.executemany('''
-                            INSERT OR IGNORE INTO hits (ip, statum, dt, ts, method, url, params, ref, hash, size, httpstatus, user_agent_id, uid, resolution, language, os)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', hits_inserts)
+            print(f"Records skipped: {skipped_counter}")
 
-                        record_counter += len(hits_inserts)  # Increase record counter
+    # If any data remains, insert them
+    if ua_inserts:
+        cur.executemany('INSERT OR IGNORE INTO ua (hash, ua, mobile, bot) VALUES (?, ?, ?, ?)', ua_inserts)
 
-                        ua_inserts.clear()
-                        hits_inserts.clear()
-                        conn.commit()
+    if hits_inserts:
+        cur.executemany('INSERT OR IGNORE INTO hits (ip, statum, dt, ts, method, url, params, ref, hash, size, '
+                        'httpstatus, user_agent_id, uid, resolution, language, os) VALUES '
+                        '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', hits_inserts)
 
-        if args.today:
-            print(f"Records imported for today ({today}): {record_counter}")  # Show number of records imported today
-        else:
-            print(f"Records imported so far: {record_counter}")  # Show number of records imported by far
+    record_counter += len(hits_inserts)
 
-# If any data remains, insert them
-if ua_inserts:
-    cur.executemany('INSERT OR IGNORE INTO ua (hash, ua, mobile, bot) VALUES (?, ?, ?, ?)', ua_inserts)
+    conn.commit()
+    conn.close()
 
-if hits_inserts:
-    cur.executemany('''
-        INSERT OR IGNORE INTO hits (ip, statum, dt, ts, method, url, params, ref, hash, size, httpstatus, user_agent_id, uid, resolution, language, os)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', hits_inserts)
+    print(f"Records imported total: {record_counter}")
+    print(f"Records skipped total: {skipped_counter}")
 
-record_counter += len(hits_inserts)  # Increase record counter
-
-conn.commit()
-conn.close()
-
-print(f"Records imported total: {record_counter}")  # Show number of records imported by far
+if __name__ == '__main__':
+    main()
 
 # The End
