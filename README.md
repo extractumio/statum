@@ -1,7 +1,11 @@
-# Statum: A Handy Web Analytics for Developing Websites
+# Statum: A Handy Web-Traffic Analytics for Developing Websites
 
-Statum is a simple yet handy web analytics tool developed by Extractum.io that parses web server log files, enriches them with web-based data and inserts pertinent details into an SQLite database. 
-This enables quick analysis and reporting of web server activity.
+Statum, developed by Extractum.io, is a open-source user-friendly web analytics tool that leverages both web-server logs and client-side collected statistics. 
+This dual-source approach offers a comprehensive view of a website's traffic, facilitating swift analysis and reporting on various aspects such as visitor activity, page errors, and more.
+
+Notably, Statum is designed for easy installation and use. It functions effectively as a standalone tool or in conjunction with other web analytics tools, like Google Analytics.
+
+And it's free.
 
 ![alt text](logo/statum.webp "Statum")
 
@@ -9,14 +13,15 @@ This enables quick analysis and reporting of web server activity.
 - Parses Nginx/Apache server logs.
 - Filters and extracts relevant details like IP, method, URL, user-agent, etc.
 - Categorizes user-agents into mobile, bot, and others.
-- Enriches and augments local log file statistics with web-based javascript analytics and provide a comprehensive data on return visitors.
+- Enriches and augments local log file statistics on web traffic with web-based javascript analytics and provide a comprehensive data on return visitors.
+- HTML report with statistics on web traffic, return visitors, and more.
 
 ## Prerequisites:
 1. Python 3.x
 2. SQLite3 (comes with Python's standard library)
-3. `is_bot` library - An external library for bot detection based on user-agent. Ensure it's installed and available.
+3. `is_bot` library - An external library for bot detection based on user-agent. 
 
-## Web-based Installation:
+## Client-side Installation for Enhanced Analytics:
 To enhance the analytics with web-based javascript tracking, 
 1. create an empty file statum.txt in the root folder of your webserver 
 2. insert the following code in your web pages:
@@ -28,17 +33,45 @@ This will enhance the analytics with user id, browser parameters (resolution, la
 
 > **Note:** place the /js/statum.js file in the corresponding directory of your web server.
 
-## How to Run:
-1. Place the script in a directory containing the log files (or modify the `LOG_ROOT` variable in the script to point to the directory containing the log files).
+## How to Run Statum for Statistics Collection:
+1. Update the following variables in the statum.py script according to your web server logs location and format (default is nginx format):
+```
+EXTENSION_INCLUDES = r'\.(txt|html?|ico|php|phtml|php5|php7|py|pl|sh|cgi|shtml)$'
+LOG_PATTERN = re.compile(
+    r'(?P<ip>[\d.]+) - - \[(?P<date>.*?)\] "(?P<method>\w+) (?P<url>.*?) HTTP/.*?" (?P<status>\d+) (?P<size>\d+) ".*?" "(?P<user_agent>.*?)"'
+)
+LOG_ROOT = '/var/log/nginx'
+LOG_FILENAME = 'access.log'
+```
+and specify the location of the database file (the file will be created during the first run):
+```
+PATH_TO_DATABASE = 'db/statum.db'
+```
 2. Ensure SQLite3 is installed and the Python environment is set up.
-3. Install the necessary libraries:
+3. Install the requirements:
 ```bash
-pip install is_bot
+pip install -r requirements.txt
 ```
 4. Navigate to the directory containing the script and execute:
 ```bash
-python statum.py --<option>
+python statum.py --full
 ```
+## How to Run Statum for Report Generation
+To generate the statistics, update the path and the hostname in `gen_stats.sh`:
+```
+DATABASE_FILE="./db/statum.db"
+OUTPUT_FOLDER="./stat/"
+REPORT_FILE="./web_stats.html"
+HOSTNAME="mydomain.com"
+```
+
+and run the script:
+ ```bash
+ ./gen_stats.sh
+ ```
+It will generate intermediate .db files (html cache) and the resultant statistics in the `OUTPUT_FOLDER` directory.
+
+6. Open the `REPORT_FILE` in a browser to view the statistics.
 
 ## Command-Line Options:
 - `--today`: Only parse and import today's log files.

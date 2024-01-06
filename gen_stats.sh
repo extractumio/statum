@@ -1,9 +1,23 @@
-sqlite3 ./db/statum.db <<EOF
-.output ./stat/statum_general.db
+#!/bin/bash
+
+# Define the directory containing the files and the destination file
+DATABASE_FILE="./db/statum.db"
+OUTPUT_FOLDER="./stat/"
+REPORT_FILE="./web_stats.html"
+# replace it with your domain to exclude from referrers
+HOSTNAME="mydomain.com"
+# How many days to show in the stats
+MAX_STATS_DAYS=8
+# How many results to show in the stats
+MAX_RESULTS=50
+
+# The summary stats on hits, ips, visitors, user agents, returns
+sqlite3 ${DATABASE_FILE} <<EOF
+.output ${OUTPUT_FOLDER}/statum_general.db
 .headers on
 .mode html
 WITH DateRange AS (
-    SELECT date('now', '-8 days') AS start_date, date('now') AS end_date
+    SELECT date('now', '-${MAX_STATS_DAYS} days') AS start_date, date('now') AS end_date
 ),
 
 FirstVisit AS (
@@ -37,9 +51,9 @@ WHERE h.statum = 1
 GROUP BY h.dt;
 EOF
 
-# TOP User Agents overall
-sqlite3 ./db/statum.db <<EOF
-.output ./stat/statum_topua.db
+# The list of top user agents
+sqlite3 ${DATABASE_FILE} <<EOF
+.output ${OUTPUT_FOLDER}/statum_topua.db
 .headers on
 .mode html
 SELECT 
@@ -56,9 +70,9 @@ ORDER BY c DESC
 LIMIT 50;
 EOF
 
-# Get the list of hosts that brings visitors
-sqlite3 ./db/statum.db <<EOF
-.output ./stat/statum_ref_hosts.db
+# The list of hosts that brought visitors
+sqlite3 ${DATABASE_FILE} <<EOF
+.output ${OUTPUT_FOLDER}/statum_ref_hosts.db
 .headers on
 .mode html
 WITH raw_2days AS (
@@ -85,13 +99,13 @@ WHERE
 
 SELECT COUNT(*) as hits, COUNT(DISTINCT ip) as visitor_ips, COUNT(DISTINCT url) as pages_unique, host, MIN(dt), MAX(dt)
 FROM raw_2days
-WHERE ref NOT LIKE '%llm.extractum.io%'
+WHERE ref NOT LIKE '%${HOST_NAME}%'
 GROUP BY host ORDER BY hits DESC LIMIT 50;
 EOF
 
-# Get the list of pages that have the most referals
-sqlite3 ./db/statum.db <<EOF
-.output ./stat/statum_ref_pages.db
+# The list of pages which had the most referals
+sqlite3 ${DATABASE_FILE} <<EOF
+.output ${OUTPUT_FOLDER}/statum_ref_pages.db
 .headers on
 .mode html
 WITH raw_2days AS (
@@ -111,13 +125,13 @@ WHERE
 
 SELECT COUNT(*) as hits, COUNT(DISTINCT ip) as visitors_ips, referrer_url, MIN(dt), MAX(dt)
 FROM raw_2days
-WHERE referrer_url NOT LIKE '%llm.extractum.io%'
-GROUP BY referrer_url ORDER BY hits DESC LIMIT 50;
+WHERE referrer_url NOT LIKE '%${HOST_NAME}%'
+GROUP BY referrer_url ORDER BY hits DESC LIMIT ${MAX_RESULTS};
 EOF
 
-# Get the list of page statuses
-sqlite3 ./db/statum.db <<EOF
-.output ./stat/statum_http.db
+# The list of page statuses
+sqlite3 ${DATABASE_FILE} <<EOF
+.output ${OUTPUT_FOLDER}/statum_http.db
 .headers on
 .mode html
 SELECT
@@ -140,9 +154,9 @@ GROUP BY dt
 ORDER BY dt;
 EOF
 
-# Get the list of popular pages by hits
-sqlite3 ./db/statum.db <<EOF
-.output ./stat/statum_top_pages.db
+# The list of popular pages by hit count (requests)
+sqlite3 ${DATABASE_FILE} <<EOF
+.output ${OUTPUT_FOLDER}/statum_top_pages.db
 .headers on
 .mode html
 WITH raw_2days AS (
@@ -163,6 +177,44 @@ WHERE
 
 SELECT url, COUNT(*) as num, COUNT(DISTINCT ip) as visitors_ips
 FROM raw_2days
-GROUP BY url ORDER BY num DESC LIMIT 50;
+GROUP BY url ORDER BY num DESC LIMIT ${MAX_RESULTS};
 EOF
 
+# Check if source directory exists
+if [ ! -d "$OUTPUT_FOLDER" ]; then
+    echo "Source directory does not exist."
+    exit 1
+fi
+
+# Check if destination directory exists, create if not
+destination_dir=$(dirname "$REPORT_FILE")
+if [ ! -d "$destination_dir" ]; then
+    mkdir -p "$destination_dir"
+fi
+
+# Combine the files
+{
+    echo -e "<html><head><style>table { margin-bottom: 30px; } h1 {font-size: 30px;} table, th, td {border: 0px none; font-family: Helvetica } th, td { padding: 3px 4px; text-align: left; }</style><meta name=\"robots\" content=\"noimageindex, nofollow, nosnippet\"></head><body>"
+    date -u
+    echo -e "<h1>Summary:</h1><table>"
+    cat "${OUTPUT_FOLDER}statum_general.db"
+    echo -e "</table>"
+    echo -e "<h1>Referred Hosts:</h1><table>"
+    cat "${OUTPUT_FOLDER}statum_ref_hosts.db"
+    echo -e "</table>"
+    echo -e "<h1>Referred Pages:</h1><table>"
+    cat "${OUTPUT_FOLDER}statum_ref_pages.db"
+    echo -e "</table>"
+    echo -e "<h1>Popular Pages:</h1><table>"
+    cat "${OUTPUT_FOLDER}statum_top_pages.db"
+    echo -e "</table>"
+    echo -e "<h1>HTTP Statuses:</h1><table>"
+    cat "${OUTPUT_FOLDER}statum_http.db"
+    echo -e "</table>"
+    echo -e "<h1>TOP UA:<h1><table>"
+    cat "${OUTPUT_FOLDER}statum_topua.db"
+    echo -e "</table>"
+    echo -e "</body></html>"
+} > "$REPORT_FILE"
+
+echo "Web analytics file $REPORT_FILE is ready"

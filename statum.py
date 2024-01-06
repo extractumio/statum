@@ -11,22 +11,20 @@ from urllib.parse import parse_qs, unquote, urlparse
 from is_bot import Bots
 
 # ======================================================================================================================
-# Change the following variables to suit your needs
-# ======================================================================================================================
-
 PATH_TO_DATABASE = 'db/statum.db'
 
 # the list of files to be processed from the log and stored in the database
 EXTENSION_INCLUDES = r'\.(txt|html?|ico|php|phtml|php5|php7|py|pl|sh|cgi|shtml)$'
 LOG_PATTERN = re.compile(
-    r'(?P<ip>[\d.]+) - - \[(?P<date>.*?)\] "(?P<method>\w+) (?P<url>.*?) HTTP/.*?" (?P<status>\d+) (?P<size>\d+) ".*?" "(?P<user_agent>.*?)"'
-)
+    # The regexp parses the following nginx log format:
+    # 18.132.10.157 - - [10/Oct/2023:10:10:57 +0000] "GET /node HTTP/1.1" 404 125 "-" "'Cloud mapping experiment. Contact research@pdrlabs.net'"
+    r'(?P<ip>[\d.]+) - - \[(?P<date>.*?)\] "(?P<method>\w+) (?P<url>.*?) HTTP/.*?" (?P<status>\d+) (?P<size>\d+) ".*?" "(?P<user_agent>.*?)"')
 
 LOG_ROOT = '/var/log/nginx'
-#LOG_ROOT = './logs'
+# LOG_ROOT = './logs'
 
 # The script will scan for access.log, access.log.1, access.log.2.gz, access.log.3.gz, etc.
-LOG_FILENAME = 'access.log' # prefix of the log file name
+LOG_FILENAME = 'access.log'  # prefix of the log file name
 
 # ======================================================================================================================
 
@@ -35,6 +33,7 @@ regexp_mobile = re.compile(
     r"(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows ce|xda|xiino",
     re.I | re.M)
 
+
 def sanitize_string(s):
     # Remove all non-alphanumeric characters
     sanitized = re.sub(r'[^a-zA-Z0-9]', '', s)
@@ -42,20 +41,24 @@ def sanitize_string(s):
     # Limit the length to 80 characters
     return sanitized[:80]
 
+
 def detect_mobile_browser(user_agent):
     b = regexp_mobile.search(user_agent)
     if b:
         return True
     return False
 
+
 def main():
-    print("Statum - Simple Yet Handy Web Analytics by Extractum.io")
+    print("Statum - Simple, User-Friendly, and Accurate Website Traffic Analytics by Extractum.io")
 
     # Argument parsing
     parser = argparse.ArgumentParser(description="Parse WebServer Log Files.")
     parser.add_argument('--today', action='store_true', help='Parse only today\'s log files.')
-    parser.add_argument('--full', action='store_true', help='Parse all log files and insert the records into the empty database.')
-    parser.add_argument('--missing', action='store_true', help='Parse all log files and insert missing records based on the last inserted timestamp in the database.')
+    parser.add_argument('--full', action='store_true', help='Parse all log files and insert the records '
+                                                            'into the empty database.')
+    parser.add_argument('--missing', action='store_true', help='Parse all log files and insert missing '
+                                                               'records based on the last inserted timestamp in the database.')
 
     if len(sys.argv) == 1:  # No arguments provided
         parser.print_help(sys.stderr)
@@ -139,12 +142,10 @@ def main():
         for file in files:
             if args.today and file == LOG_FILENAME:  # When --recent, look for 'access_log' only
                 filepath = os.path.join(root, file)
-                print(f"Processing file: {filepath}")  # Show current processing file
-                # proceed with further processing
+                print(f"Processing file: {filepath}")  # Show current processing file  # proceed with further processing
             elif not args.today and file.startswith(LOG_FILENAME):  # Otherwise, proceed as before
                 filepath = os.path.join(root, file)
-                print(f"Processing file: {filepath}")  # Show current processing file
-                # proceed with further processing
+                print(f"Processing file: {filepath}")  # Show current processing file  # proceed with further processing
             else:
                 continue
 
@@ -227,9 +228,10 @@ def main():
 
                         data['user_agent_id'] = ua_hash
 
-                        hits_inserts.append((data['ip'], data['statum'], data['dt'], data['ts'], data['method'], data['url'],
-                                             data['params'], data['ref'], data['hash'], data['size'], data['status'], data['user_agent_id'],
-                                             data['uid'], data['s'], data['l'], data['os']))
+                        hits_inserts.append((data['ip'], data['statum'], data['dt'], data['ts'], data['method'],
+                                             data['url'], data['params'], data['ref'], data['hash'], data['size'],
+                                             data['status'], data['user_agent_id'], data['uid'], data['s'], data['l'],
+                                             data['os']))
 
                         # Consider inserting data in chunks to avoid memory issues
                         if len(hits_inserts) >= 1000:
@@ -269,6 +271,7 @@ def main():
 
     print(f"Records imported total: {record_counter}")
     print(f"Records skipped total: {skipped_counter}")
+
 
 if __name__ == '__main__':
     main()
