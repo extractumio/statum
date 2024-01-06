@@ -99,7 +99,7 @@ WHERE
 
 SELECT COUNT(*) as hits, COUNT(DISTINCT ip) as visitor_ips, COUNT(DISTINCT url) as pages_unique, host, MIN(dt), MAX(dt)
 FROM raw_2days
-WHERE ref NOT LIKE '%${HOST_NAME}%'
+WHERE ref NOT LIKE '%${HOSTNAME}%'
 GROUP BY host ORDER BY hits DESC LIMIT 50;
 EOF
 
@@ -125,7 +125,7 @@ WHERE
 
 SELECT COUNT(*) as hits, COUNT(DISTINCT ip) as visitors_ips, referrer_url, MIN(dt), MAX(dt)
 FROM raw_2days
-WHERE referrer_url NOT LIKE '%${HOST_NAME}%'
+WHERE referrer_url NOT LIKE '%${HOSTNAME}%'
 GROUP BY referrer_url ORDER BY hits DESC LIMIT ${MAX_RESULTS};
 EOF
 
