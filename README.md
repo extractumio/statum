@@ -1,4 +1,4 @@
-# Statum: A Handy Web-Traffic Analytics for Developing Websites
+# Statum: A User Friendly Web Analytics for Developing Websites
 
 Statum, developed by Extractum.io, is a open-source user-friendly web analytics tool that leverages both web-server logs and client-side collected statistics. 
 This dual-source approach offers a comprehensive view of a website's traffic, facilitating swift analysis and reporting on various aspects such as visitor activity, page errors, and more.

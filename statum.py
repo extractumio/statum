@@ -18,10 +18,10 @@ EXTENSION_INCLUDES = r'\.(txt|html?|ico|php|phtml|php5|php7|py|pl|sh|cgi|shtml)$
 LOG_PATTERN = re.compile(
     # The regexp parses the following nginx log format:
     # 18.132.10.157 - - [10/Oct/2023:10:10:57 +0000] "GET /node HTTP/1.1" 404 125 "-" "'Cloud mapping experiment. Contact research@pdrlabs.net'"
-    r'(?P<ip>[\d.]+) - - \[(?P<date>.*?)\] "(?P<method>\w+) (?P<url>.*?) HTTP/.*?" (?P<status>\d+) (?P<size>\d+) ".*?" "(?P<user_agent>.*?)"')
+    r'(?P<ip>[\d.]+) - - \[(?P<date>.*?)\] "(?P<method>\w+) (?P<url>.*?) HTTP/.*?" (?P<status>\d+) (?P<size>\d+) "(?P<ref>.*?)" "(?P<user_agent>.*?)"')
 
 LOG_ROOT = '/var/log/nginx'
-# LOG_ROOT = './logs'
+#LOG_ROOT = './logs'
 
 # The script will scan for access.log, access.log.1, access.log.2.gz, access.log.3.gz, etc.
 LOG_FILENAME = 'access.log'  # prefix of the log file name
@@ -160,7 +160,6 @@ def main():
                         # Assuming match.group('request') contains the entire request string
                         request_parts = urlparse(data['url'])
                         data['url'] = request_parts.path  # extracting the path
-                        data['ref'] = ''
                         data['uid'] = data['ip']
 
                         # default values for the case when the records are being extracted from local logs only

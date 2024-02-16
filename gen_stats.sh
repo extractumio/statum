@@ -51,25 +51,6 @@ WHERE h.statum = 1
 GROUP BY h.dt;
 EOF
 
-# The list of top user agents
-sqlite3 ${DATABASE_FILE} <<EOF
-.output ${OUTPUT_FOLDER}/statum_topua.db
-.headers on
-.mode html
-SELECT 
-    h.user_agent_id,
-    COUNT() AS c,
-    COUNT(DISTINCT ip) as ip_count,
-    ua.ua AS user_agent_name,
-    ua.bot as is_bot
-FROM hits h
-JOIN ua ON h.user_agent_id = ua.hash
-WHERE h.dt BETWEEN DATE(date('now'), '-1 days') AND date('now')
-GROUP BY h.user_agent_id, ua.ua, ua.bot
-ORDER BY c DESC
-LIMIT 50;
-EOF
-
 # The list of hosts that brought visitors
 sqlite3 ${DATABASE_FILE} <<EOF
 .output ${OUTPUT_FOLDER}/statum_ref_hosts.db
@@ -81,12 +62,23 @@ SELECT
     h.dt as dt,
 		h.url as url,
 		h.ref as ref,
-		substr(ref, instr(ref, '//') + 2,
-		              case
-		                  when instr(substr(ref, instr(ref, '//') + 2), '/') = 0 then length(ref)
-		                  else instr(substr(ref, instr(ref, '//') + 2), '/') - 1
-		              end
-		       ) as host
+COALESCE(
+    NULLIF(
+        replace(
+            substr(
+                ref,
+                instr(ref, '//') + 2,
+                case
+                    when instr(substr(ref, instr(ref, '//') + 2), '/') = 0 then length(ref)
+                    else instr(substr(ref, instr(ref, '//') + 2), '/') - 1
+                end
+            ),
+            'www.', ''
+        ),
+        ''
+    ),
+    '[empty]'
+  ) as host
 FROM hits h
 LEFT JOIN ua ON h.user_agent_id = ua.hash
 WHERE
@@ -99,8 +91,8 @@ WHERE
 
 SELECT COUNT(*) as hits, COUNT(DISTINCT ip) as visitor_ips, COUNT(DISTINCT url) as pages_unique, host, MIN(dt), MAX(dt)
 FROM raw_2days
-WHERE ref NOT LIKE '%${HOSTNAME}%'
-GROUP BY host ORDER BY hits DESC LIMIT 50;
+WHERE host NOT LIKE '%${HOSTNAME}%'
+GROUP BY host ORDER BY visitor_ips DESC LIMIT 50;
 EOF
 
 # The list of pages which had the most referals
@@ -129,6 +121,32 @@ WHERE referrer_url NOT LIKE '%${HOSTNAME}%'
 GROUP BY referrer_url ORDER BY hits DESC LIMIT ${MAX_RESULTS};
 EOF
 
+# The list of popular pages by ip count
+sqlite3 ${DATABASE_FILE} <<EOF
+.output ${OUTPUT_FOLDER}/statum_top_pages.db
+.headers on
+.mode html
+WITH raw_2days AS (
+SELECT
+    h.dt as dt,
+    h.ip as ip,
+    h.url || h.params as url,
+		h.ref as ref
+FROM hits h
+LEFT JOIN ua ON h.user_agent_id = ua.hash
+WHERE
+    h.dt BETWEEN date('now', '-1 days') and date('now')
+		AND
+		h.statum = 1
+		AND
+		ua.bot = 0
+)
+
+SELECT url, COUNT(*) as num, COUNT(DISTINCT ip) as visitors_ips
+FROM raw_2days
+GROUP BY url ORDER BY visitors_ips DESC LIMIT ${MAX_RESULTS};
+EOF
+
 # The list of page statuses
 sqlite3 ${DATABASE_FILE} <<EOF
 .output ${OUTPUT_FOLDER}/statum_http.db
@@ -154,31 +172,26 @@ GROUP BY dt
 ORDER BY dt;
 EOF
 
-# The list of popular pages by hit count (requests)
+# The list of top user agents
 sqlite3 ${DATABASE_FILE} <<EOF
-.output ${OUTPUT_FOLDER}/statum_top_pages.db
+.output ${OUTPUT_FOLDER}/statum_topua.db
 .headers on
 .mode html
-WITH raw_2days AS (
 SELECT
-    h.dt as dt,
-    h.ip as ip,
-    h.url as url,
-		h.ref as ref
+    h.user_agent_id,
+    COUNT() AS c,
+    COUNT(DISTINCT ip) as ip_count,
+    ua.ua AS user_agent_name,
+    ua.bot as is_bot
 FROM hits h
-LEFT JOIN ua ON h.user_agent_id = ua.hash
-WHERE
-    h.dt BETWEEN date('now', '-1 days') and date('now')
-		AND
-		h.statum = 1
-		AND
-		ua.bot = 0
-)
-
-SELECT url, COUNT(*) as num, COUNT(DISTINCT ip) as visitors_ips
-FROM raw_2days
-GROUP BY url ORDER BY num DESC LIMIT ${MAX_RESULTS};
+JOIN ua ON h.user_agent_id = ua.hash
+WHERE h.dt BETWEEN DATE(date('now'), '-1 days') AND date('now')
+GROUP BY h.user_agent_id, ua.ua, ua.bot
+ORDER BY c DESC
+LIMIT 50;
 EOF
+
+
 
 # Check if source directory exists
 if [ ! -d "$OUTPUT_FOLDER" ]; then
